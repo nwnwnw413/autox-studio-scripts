@@ -1,0 +1,174 @@
+{
+ "schema": "autox-registry/v0.1",
+ "autox_commit": "5931a3056e8b",
+ "products": {
+  "nyxid": {
+   "name": "NyxID",
+   "pitch": "Connect AI agents to any API, anywhere. Securely.",
+   "one_liner": "Connect any AI agent to your real stack — without ever handing the agent your credentials.",
+   "wedge": "open-source Agent Connectivity Gateway: credential injection, MCP auto-wrap, per-agent isolation, and Credential Nodes so agents call real APIs without seeing raw keys",
+   "release_cta": "Run `nyxid update` to grab {tag}.",
+   "cta_landing": "https://nyx.chrono-ai.fun/register",
+   "brand_palette": [
+    "#5E00F5",
+    "#A672FB"
+   ],
+   "image_gradient": "deep violet #5E00F5 in the upper-left to soft lavender #A672FB in the center to dusty pink lower-right",
+   "image_compositions": [
+    "a single frosted glass torus ring floats subtly behind the typography in the lower-right corner as quiet visual accent, partially cropped",
+    "a tall frosted glass monolith slab tilts behind the typography in the lower-right corner, edge-lit with subtle inner refraction, partially cropped",
+    "three floating frosted-glass shards of varying sizes drift behind the typography in the lower-right corner, each shard catching gradient light, partially cropped",
+    "a 4x4 grid of small frosted glass cubes floats behind the typography in the lower-right corner, each cube slightly rotated and catching ambient light, partially cropped",
+    "a single frosted glass sphere with a soft inner caustic glow rests behind the typography in the lower-right corner, partially cropped",
+    "a thin sharp beam of cool violet light refracts through a small floating glass prism behind the typography in the lower-right corner, partially cropped"
+   ],
+   "logo": {
+    "wordmark": "products/assets/nyxid-brand/nyxid-coloured-logo.svg",
+    "wordmark_dark": "products/assets/nyxid-brand/nyxid-coloured-logo-dark.svg",
+    "mark_only": "products/assets/nyxid-brand/nyxid-coloured-icon.svg",
+    "composite_position": "bottom-right",
+    "composite_width_pct": 0.13,
+    "composite_padding_px": 28
+   },
+   "release_visual": "products/assets/nyxid-release-whats-new.png",
+   "collision_brands": [
+    "Composio",
+    "Arcade",
+    "MintMCP",
+    "Klavis",
+    "WorkOS",
+    "Auth0"
+   ]
+  },
+  "ornn": {
+   "name": "Ornn",
+   "pitch": "Skills-as-a-service for agents — manage, auto-generate, and call agent skills as simply as an API.",
+   "one_liner": "Your all-in-one platform to manage your skills, auto-generate skills, and use agent skills as simple as calling an API.",
+   "wedge": "agent-facing skill-lifecycle API: agents call Ornn over HTTP or MCP to search, pull, install, execute, build, upload, and share versioned skill packages",
+   "release_cta": "Open https://ornn.chrono-ai.fun and try the new flow.",
+   "cta_landing": "https://ornn.chrono-ai.fun",
+   "brand_palette": [
+    "#FF7322",
+    "#FB923C"
+   ],
+   "image_gradient": "warm orange #FF7322 in the upper-left to peach #FB923C in the center to muted lavender lower-right",
+   "image_compositions": [
+    "a single frosted glass torus ring floats subtly behind the typography in the lower-right corner as quiet visual accent, partially cropped",
+    "a tall frosted glass monolith slab tilts behind the typography in the lower-right corner, edge-lit with subtle inner refraction, partially cropped",
+    "three floating frosted-glass shards of varying sizes drift behind the typography in the lower-right corner, each shard catching gradient light, partially cropped",
+    "a 4x4 grid of small frosted glass cubes floats behind the typography in the lower-right corner, each cube slightly rotated and catching ambient light, partially cropped",
+    "a single frosted glass sphere with a soft inner caustic glow rests behind the typography in the lower-right corner, partially cropped",
+    "a thin sharp beam of warm white light refracts through a small floating glass prism behind the typography in the lower-right corner, partially cropped"
+   ],
+   "logo": {
+    "wordmark": "products/assets/ornn-brand/logo-light.svg",
+    "mark_only": "products/assets/ornn-brand/favicon.svg",
+    "composite_position": "bottom-right",
+    "composite_width_pct": 0.12,
+    "composite_padding_px": 28
+   },
+   "release_visual": "products/assets/ornn-release-whats-new.png",
+   "collision_brands": [
+    "Smithery",
+    "Glama",
+    "Skills.sh",
+    "Toolhouse",
+    "Agensi"
+   ]
+  }
+ },
+ "blocked_names": [
+  {
+   "name": "Agensi",
+   "source": "ornn.yaml collision_brands"
+  },
+  {
+   "name": "Agent Vault",
+   "source": "competitors-x-radar.yaml (Infisical Agent Vault)"
+  },
+  {
+   "name": "Arcade",
+   "source": "nyxid.yaml collision_brands"
+  },
+  {
+   "name": "Arcade.dev",
+   "source": "competitors-x-radar.yaml (Arcade.dev)"
+  },
+  {
+   "name": "Auth0",
+   "source": "nyxid.yaml collision_brands"
+  },
+  {
+   "name": "Composio",
+   "source": "nyxid.yaml collision_brands"
+  },
+  {
+   "name": "composiohq",
+   "source": "competitors-x-radar.yaml (Composio)"
+  },
+  {
+   "name": "Glama",
+   "source": "ornn.yaml collision_brands"
+  },
+  {
+   "name": "glama.ai",
+   "source": "competitors-x-radar.yaml (Glama)"
+  },
+  {
+   "name": "glama_ai",
+   "source": "competitors-x-radar.yaml (Glama)"
+  },
+  {
+   "name": "Infisical",
+   "source": "competitors-x-radar.yaml (Infisical Agent Vault)"
+  },
+  {
+   "name": "Infisical Agent Vault",
+   "source": "competitors-x-radar.yaml (Infisical Agent Vault)"
+  },
+  {
+   "name": "Klavis",
+   "source": "nyxid.yaml collision_brands"
+  },
+  {
+   "name": "MintMCP",
+   "source": "nyxid.yaml collision_brands"
+  },
+  {
+   "name": "Skills.sh",
+   "source": "ornn.yaml collision_brands"
+  },
+  {
+   "name": "Smithery",
+   "source": "ornn.yaml collision_brands"
+  },
+  {
+   "name": "Smithery AI",
+   "source": "competitors-x-radar.yaml (Smithery)"
+  },
+  {
+   "name": "SmitheryDotAI",
+   "source": "competitors-x-radar.yaml (Smithery)"
+  },
+  {
+   "name": "Toolhouse",
+   "source": "ornn.yaml collision_brands"
+  },
+  {
+   "name": "TryArcade",
+   "source": "competitors-x-radar.yaml (Arcade.dev)"
+  },
+  {
+   "name": "Vercel Skills",
+   "source": "competitors-x-radar.yaml (Skills.sh)"
+  },
+  {
+   "name": "WorkOS",
+   "source": "nyxid.yaml collision_brands"
+  }
+ ],
+ "enabled_products": [
+  "nyxid",
+  "ornn"
+ ]
+}
