@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.2.1).
+"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.4).
 
 Ported from Auto-X lib/guardrails.py (deterministic part only: VOICE_PATTERNS,
 LEGAL_RE, em-dash > 2) and lib/image_gen.py (PUBLIC_BLOCKED_TOKENS). Source:
@@ -12,6 +12,9 @@ YAML/JSON item package, schema autox-item/v0.2.
 Output: JSON on stdout: per-variant hits, eligible flags, char_count, sha12, and
 the studio decision (ok -> checked, revise -> revise with round+1,
 skip -> done:skipped rework_exhausted).
+Contract v0.4 (skill 0.6): human edits ("human_revise") also bump round but do not
+count toward the 2-round rework limit. auto_rounds = round - (history rows whose
+reason_code is human_revise); rework is exhausted when auto_rounds >= 2.
 --write-body (skill 0.4) also appends one row to the append-only `history` and, on
 skip, writes `outcome: {state: skipped, reason_code: rework_exhausted, at}`.
 Exit: 0 = at least one variant eligible (decision ok), 1 = no eligible variant,
@@ -33,9 +36,10 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 SCHEMA = "autox-item/v0.2"
-OUTPUT_SCHEMA = "autox-guardrails/v0.2.1"
+OUTPUT_SCHEMA = "autox-guardrails/v0.4"
 CONTENT_TYPES = {"regular", "release"}          # newsjack, x_reply: P2
-MAX_ROUND = 2
+MAX_ROUND = 2                                   # max automatic rework rounds (human_revise excluded)
+HUMAN_REVISE = "human_revise"
 LENGTH_LIMIT = {"release": 280}
 DEFAULT_LIMIT = 240
 TCO_LENGTH = 23
@@ -311,6 +315,19 @@ def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None =
     return hits
 
 
+def human_revisions(pkg: dict) -> int:
+    """Rows in the append-only history written when Ada asked for an edit (contract v0.4)."""
+    history = pkg.get("history")
+    if not isinstance(history, list):
+        return 0
+    return sum(1 for row in history if isinstance(row, dict) and row.get("reason_code") == HUMAN_REVISE)
+
+
+def auto_rounds(pkg: dict) -> int:
+    """Automatic rework rounds so far: round minus human-requested rewrites (never below 0)."""
+    return max(0, int(pkg.get("round") or 0) - human_revisions(pkg))
+
+
 def evaluate(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None) -> dict:
     product = str(pkg.get("product") or "")
     content_type = str(pkg.get("content_type") or "")
@@ -325,9 +342,10 @@ def evaluate(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None
             r["eligible"] = False
     eligible = [r["id"] for r in results if r["eligible"]]
     rnd = int(pkg.get("round") or 0)
+    auto = auto_rounds(pkg)
     if eligible:
         decision = {"verdict": "ok", "reason_code": None, "next_label": "checked", "round_after": rnd}
-    elif rnd < MAX_ROUND:
+    elif auto < MAX_ROUND:
         decision = {"verdict": "revise", "reason_code": "guardrail_fail", "next_label": "revise",
                     "round_after": rnd + 1}
     else:
@@ -335,7 +353,8 @@ def evaluate(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None
                     "round_after": rnd, "close": True}
     return {
         "schema": OUTPUT_SCHEMA, "item_schema": pkg.get("schema"), "product": product,
-        "content_type": content_type, "round": rnd, "item_hits": item_hits,
+        "content_type": content_type, "round": rnd, "auto_rounds": auto,
+        "human_revisions": human_revisions(pkg), "item_hits": item_hits,
         "variants": results, "eligible_variants": eligible, "decision": decision,
         "passed": bool(eligible),
     }
@@ -410,7 +429,7 @@ def _now_sgt() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.2.1)")
+    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.4)")
     ap.add_argument("path", nargs="?", help="issue body / YAML package file, or - for stdin")
     ap.add_argument("--text", help="check a bare string (image text) instead of a package")
     ap.add_argument("--mode", choices=["image_text"], default="image_text")
