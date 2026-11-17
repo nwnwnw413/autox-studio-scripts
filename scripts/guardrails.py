@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.4).
+"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.7).
 
 Ported from Auto-X lib/guardrails.py (deterministic part only: VOICE_PATTERNS,
 LEGAL_RE, em-dash > 2) and lib/image_gen.py (PUBLIC_BLOCKED_TOKENS). Source:
@@ -17,6 +17,11 @@ count toward the 2-round rework limit. auto_rounds = round - (history rows whose
 reason_code is human_revise); rework is exhausted when auto_rounds >= 2.
 --write-body (skill 0.4) also appends one row to the append-only `history` and, on
 skip, writes `outcome: {state: skipped, reason_code: rework_exhausted, at}`.
+Contract v0.7 (skill 1.0): the image is drawn by the state repo's GitHub Action, not by
+the studio. Without --image, --write-body keeps whatever `image` the body already has
+(the Action may have written it). The writer's new `image_title` gets item-level checks
+(<= 6 words, <= 48 chars, English characters only, no URL/#/@, plus the common checks);
+a missing or empty image_title is not a hit (no image for this item).
 Exit: 0 = at least one variant eligible (decision ok), 1 = no eligible variant,
 2 = unreadable input.
 
@@ -36,7 +41,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 SCHEMA = "autox-item/v0.2"
-OUTPUT_SCHEMA = "autox-guardrails/v0.4"
+OUTPUT_SCHEMA = "autox-guardrails/v0.7"
 CONTENT_TYPES = {"regular", "release"}          # newsjack, x_reply: P2
 MAX_ROUND = 2                                   # max automatic rework rounds (human_revise excluded)
 HUMAN_REVISE = "human_revise"
@@ -46,6 +51,10 @@ TCO_LENGTH = 23
 HASHTAG_RANGE = {"x_reply": (0, 3)}
 DEFAULT_HASHTAG_RANGE = (1, 3)
 PRODUCT_NAMES = {"nyxid": ["NyxID"], "ornn": ["Ornn"]}
+IMAGE_TITLE_MAX_WORDS = 6
+IMAGE_TITLE_MAX_CHARS = 48
+# English characters only: printable ASCII plus curly quotes; '#' and '@' are rejected separately.
+IMAGE_TITLE_CHARS_RE = re.compile("[ -~\u2018\u2019\u201c\u201d]+")
 
 # ---- ported from Auto-X lib/guardrails.py -------------------------------------------
 LEGAL_RE = re.compile(r"(?i)(?:\bbest\b|\bguaranteed\b|#\s*1\b|\bnumber\s+one\b)")
@@ -272,6 +281,33 @@ def check_variant(variant: dict, product: str, content_type: str, names: list[st
     }
 
 
+def check_image_title(title, names: list[str]) -> list[dict]:
+    """Contract v0.7 section 14.3: the writer's one-per-item image title. Empty/missing -> no hits."""
+    if title is None:
+        return []
+    if not isinstance(title, str):
+        return [_hit("image_title", f"image_title must be a string, got {type(title).__name__}")]
+    text = title.strip()
+    if not text:
+        return []
+    hits = []
+    words = text.split()
+    if len(words) > IMAGE_TITLE_MAX_WORDS:
+        hits.append(_hit("image_title", f"{len(words)} words, limit {IMAGE_TITLE_MAX_WORDS}"))
+    if len(text) > IMAGE_TITLE_MAX_CHARS:
+        hits.append(_hit("image_title", f"{len(text)} characters, limit {IMAGE_TITLE_MAX_CHARS}"))
+    if not IMAGE_TITLE_CHARS_RE.fullmatch(text):
+        bad = sorted({ch for ch in text if not IMAGE_TITLE_CHARS_RE.fullmatch(ch)})
+        hits.append(_hit("image_title", f"English characters only, found {bad}"))
+    if "#" in text or "@" in text:
+        hits.append(_hit("image_title", "no hashtags or @handles on the image"))
+    if find_urls(text):
+        hits.append(_hit("image_title", "no URLs on the image"))
+    for h in check_common(text, names):
+        hits.append(_hit("image_title", f"{h['check']}: {h['detail']}"))
+    return hits
+
+
 def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None) -> list[dict]:
     """Item-level hits. Any item-level hit makes every variant ineligible."""
     ids = capability_ids() if ids is None else ids
@@ -312,6 +348,7 @@ def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None =
     styles = [v.get("hook_style") for v in variants if isinstance(v, dict)]
     if len(set(styles)) != len(styles):
         hits.append(_hit("variants", f"hook_style repeats: {styles}"))
+    hits += check_image_title(pkg.get("image_title"), names)
     return hits
 
 
@@ -382,10 +419,12 @@ def history_row(result: dict, at: str, image: dict | None) -> dict:
 
 
 def apply_to_body(raw: str, pkg: dict, result: dict, at: str, image: dict | None) -> str:
-    """Write only studio-owned fields (char_count, sha12, eligible, image, studio) and,
+    """Write only studio-owned fields (char_count, sha12, eligible, studio) and,
     on revise, round+1. Append one row to `history` (existing rows are never touched) and,
     when the item goes terminal (skip -> done:skipped rework_exhausted), write `outcome`.
-    Everything else keeps its value; text outside the yaml block is kept."""
+    Everything else keeps its value; text outside the yaml block is kept.
+    Contract v0.7: `image` belongs to the image Action. It is only replaced when the
+    caller passes --image explicitly; otherwise the body's value is written back as is."""
     import yaml  # type: ignore
     history = pkg.get("history")
     if history is None:
@@ -429,12 +468,13 @@ def _now_sgt() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.4)")
+    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.7)")
     ap.add_argument("path", nargs="?", help="issue body / YAML package file, or - for stdin")
     ap.add_argument("--text", help="check a bare string (image text) instead of a package")
     ap.add_argument("--mode", choices=["image_text"], default="image_text")
     ap.add_argument("--write-body", type=Path, help="write the updated issue body here")
-    ap.add_argument("--image", help="JSON for the image field, written with --write-body")
+    ap.add_argument("--image", help="JSON for the image field, written with --write-body "
+                    "(omit it to keep the body's image as is; contract v0.7)")
     ap.add_argument("--at", help="timestamp for studio.at (default: now, +08:00)")
     args = ap.parse_args(argv)
     names = blocked_names()
