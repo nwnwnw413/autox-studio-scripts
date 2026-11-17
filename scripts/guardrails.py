@@ -81,14 +81,14 @@ IMAGE_TITLE_CHARS_RE = re.compile("[ -~\u2018\u2019\u201c\u201d]+")
 # ---- ported from Auto-X lib/guardrails.py -------------------------------------------
 LEGAL_RE = re.compile(r"(?i)(?:\bbest\b|\bguaranteed\b|#\s*1\b|\bnumber\s+one\b)")
 VOICE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("delve", re.compile(r"(?i)\bdelve(?:s|d|ing)?\b")),
+    ("delve", re.compile(r"(?i)\bdelv(?:e|es|ed|ing)\b")),
     ("seamless", re.compile(r"(?i)\bseamless(?:ly)?\b")),
     ("in_today", re.compile(r"(?i)\bin today['’]s\b")),
     ("worth_noting", re.compile(r"(?i)\bit'?s worth noting\b")),
     ("key_takeaways", re.compile(r"(?i)\bkey takeaways\b")),
     ("in_summary", re.compile(r"(?i)\bin summary\b")),
     ("unlock", re.compile(r"(?i)\bunlock(?:s|ed|ing)?\b")),
-    ("leverage", re.compile(r"(?i)\bleverage(?:s|d|ing)?\b")),
+    ("leverage", re.compile(r"(?i)\bleverag(?:e|es|ed|ing)\b")),
     ("robust", re.compile(r"(?i)\brobust\b")),
     ("game_changer", re.compile(r"(?i)\bgame[- ]changer\b")),
     ("not_just_but", re.compile(r"(?i)\bnot just\b.+\bbut\b")),
