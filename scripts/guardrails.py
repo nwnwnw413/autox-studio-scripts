@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.7).
+"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.8).
 
 Ported from Auto-X lib/guardrails.py (deterministic part only: VOICE_PATTERNS,
 LEGAL_RE, em-dash > 2) and lib/image_gen.py (PUBLIC_BLOCKED_TOKENS). Source:
@@ -22,6 +22,13 @@ the studio. Without --image, --write-body keeps whatever `image` the body alread
 (the Action may have written it). The writer's new `image_title` gets item-level checks
 (<= 6 words, <= 48 chars, English characters only, no URL/#/@, plus the common checks);
 a missing or empty image_title is not a hit (no image for this item).
+Contract v0.8 (skill 1.2): the writer's `image_concept` {format, scene, text_on_image, brand}
+replaces image_title and gets item-level checks (section 14.3): format in the catalogue
+(IMAGE_FORMATS, same ids as the state repo's scripts/image_styles.yaml), brand derived from the
+item, scene <= 300 English characters, text_on_image empty or <= 5 words / 40 characters, no
+product or competitor names, URLs, #/@, key-like strings, red-line words or the common checks, and
+the scene must not ask for a logo, blank space or a screenshot. A missing image_concept is not a
+hit; a legacy image_title keeps the v0.7 checks.
 Exit: 0 = at least one variant eligible (decision ok), 1 = no eligible variant,
 2 = unreadable input.
 
@@ -41,7 +48,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 SCHEMA = "autox-item/v0.2"
-OUTPUT_SCHEMA = "autox-guardrails/v0.7"
+OUTPUT_SCHEMA = "autox-guardrails/v0.8"
 CONTENT_TYPES = {"regular", "release"}          # newsjack, x_reply: P2
 MAX_ROUND = 2                                   # max automatic rework rounds (human_revise excluded)
 HUMAN_REVISE = "human_revise"
@@ -53,6 +60,21 @@ DEFAULT_HASHTAG_RANGE = (1, 3)
 PRODUCT_NAMES = {"nyxid": ["NyxID"], "ornn": ["Ornn"]}
 IMAGE_TITLE_MAX_WORDS = 6
 IMAGE_TITLE_MAX_CHARS = 48
+# ---- contract v0.8 section 14.3: image_concept ----------------------------------------
+# format id -> rule for text_on_image ("two_words": left/right panel labels; "required"; "optional")
+IMAGE_FORMATS = {"before_after": "two_words", "editorial_flat": "optional", "clay_diorama": "optional",
+                 "meme_caption": "required", "pixel_art": "optional", "split_contrast": "optional"}
+IMAGE_CONCEPT_KEYS = ("format", "scene", "text_on_image", "brand")
+IMAGE_SCENE_MAX_CHARS = 300
+IMAGE_TEXT_MAX_WORDS = 5
+IMAGE_TEXT_MAX_CHARS = 40
+OWN_NAMES = ["NyxID", "NyxBot", "ChronoAI", "Chrono AI", "Ornn"]     # the logo is pasted by the Action
+REDLINE_RE = re.compile(r"(?i)\b(?:math|maths|mathematics|mathematical|theorems?|trureturing|olympiad|sair|"
+                        r"proof assistant|formal proofs?)\b|\bLean(?:\s?4)?\b")
+SECRET_RE = re.compile(r"(?i)\b(?:sk|pk|rk|ghp|gho|ghs|xox[abp]|nyx)[-_][A-Za-z0-9]|\b(?=[\w-]*\d)[A-Za-z0-9_\-]{20,}")
+SCENE_LAYOUT_RE = re.compile(r"(?i)\b(?:logos?|wordmarks?|brand ?marks?|copy[- ]space|screenshots?|"
+                             r"blank (?:area|space|box|corner|panel)|empty (?:area|space|box|corner) for|"
+                             r"leave (?:room|space))\b")
 # English characters only: printable ASCII plus curly quotes; '#' and '@' are rejected separately.
 IMAGE_TITLE_CHARS_RE = re.compile("[ -~\u2018\u2019\u201c\u201d]+")
 
@@ -308,6 +330,87 @@ def check_image_title(title, names: list[str]) -> list[dict]:
     return hits
 
 
+def derive_brand(pkg: dict) -> str | None:
+    """Contract v0.8 section 14.3: company content -> chronoai, otherwise the item's product."""
+    cal = pkg.get("calendar")
+    if isinstance(cal, dict) and cal.get("product") == "company":
+        return "chronoai"
+    product = str(pkg.get("product") or "")
+    return product if product in PRODUCT_NAMES else None
+
+
+def _image_words(text: str, label: str, names: list[str]) -> list[dict]:
+    """Checks shared by scene and text_on_image."""
+    hits = []
+    if not IMAGE_TITLE_CHARS_RE.fullmatch(text):
+        bad = sorted({ch for ch in text if not IMAGE_TITLE_CHARS_RE.fullmatch(ch)})
+        hits.append(_hit("image_concept", f"{label}: English characters only, found {bad}"))
+    if "#" in text or "@" in text:
+        hits.append(_hit("image_concept", f"{label}: no hashtags or @handles"))
+    if find_urls(text):
+        hits.append(_hit("image_concept", f"{label}: no URLs"))
+    for name in OWN_NAMES:
+        if _name_re(name).search(text):
+            hits.append(_hit("image_concept", f"{label}: product name {name!r} (the Action pastes the official logo)"))
+            break
+    m = REDLINE_RE.search(text)
+    if m:
+        hits.append(_hit("image_concept", f"{label}: red-line word {m.group(0)!r}"))
+    m = SECRET_RE.search(text)
+    if m:
+        hits.append(_hit("image_concept", f"{label}: looks like a key or token {m.group(0)!r}"))
+    for h in check_common(text, names):
+        hits.append(_hit("image_concept", f"{label}: {h['check']}: {h['detail']}"))
+    return hits
+
+
+def check_image_concept(concept, names: list[str], pkg: dict) -> list[dict]:
+    """Contract v0.8 section 14.3: the writer's one-per-item image concept. Missing/null -> no hits."""
+    if concept is None:
+        return []
+    if not isinstance(concept, dict):
+        return [_hit("image_concept", f"image_concept must be a mapping, got {type(concept).__name__}")]
+    hits = []
+    missing = [k for k in IMAGE_CONCEPT_KEYS if k not in concept]
+    if missing:
+        hits.append(_hit("image_concept", f"missing keys {missing}"))
+    fmt = concept.get("format")
+    if fmt not in IMAGE_FORMATS:
+        hits.append(_hit("image_concept", f"format {fmt!r} is not in the catalogue {sorted(IMAGE_FORMATS)}"))
+    brand = derive_brand(pkg)
+    if concept.get("brand") != brand:
+        hits.append(_hit("image_concept", f"brand {concept.get('brand')!r}, expected {brand!r} from the item"))
+    scene = concept.get("scene")
+    if not isinstance(scene, str) or not scene.strip():
+        hits.append(_hit("image_concept", "scene must be a non-empty English sentence"))
+    else:
+        scene = " ".join(scene.split())
+        if len(scene) > IMAGE_SCENE_MAX_CHARS:
+            hits.append(_hit("image_concept", f"scene: {len(scene)} characters, limit {IMAGE_SCENE_MAX_CHARS}"))
+        m = SCENE_LAYOUT_RE.search(scene)
+        if m:
+            hits.append(_hit("image_concept", f"scene: do not ask for {m.group(0)!r} (logo and layout are the Action's job)"))
+        hits += _image_words(scene, "scene", names)
+    text = concept.get("text_on_image")
+    if text is not None and not isinstance(text, str):
+        hits.append(_hit("image_concept", "text_on_image must be a string or null"))
+        text = None
+    text = " ".join((text or "").split())
+    words = text.split()
+    if len(words) > IMAGE_TEXT_MAX_WORDS:
+        hits.append(_hit("image_concept", f"text_on_image: {len(words)} words, limit {IMAGE_TEXT_MAX_WORDS}"))
+    if len(text) > IMAGE_TEXT_MAX_CHARS:
+        hits.append(_hit("image_concept", f"text_on_image: {len(text)} characters, limit {IMAGE_TEXT_MAX_CHARS}"))
+    rule = IMAGE_FORMATS.get(fmt)
+    if rule == "two_words" and len(words) != 2:
+        hits.append(_hit("image_concept", f"text_on_image: {fmt} needs exactly two words (left and right labels)"))
+    if rule == "required" and not words:
+        hits.append(_hit("image_concept", f"text_on_image: {fmt} needs the caption"))
+    if text:
+        hits += _image_words(text, "text_on_image", names)
+    return hits
+
+
 def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None) -> list[dict]:
     """Item-level hits. Any item-level hit makes every variant ineligible."""
     ids = capability_ids() if ids is None else ids
@@ -349,6 +452,7 @@ def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None =
     if len(set(styles)) != len(styles):
         hits.append(_hit("variants", f"hook_style repeats: {styles}"))
     hits += check_image_title(pkg.get("image_title"), names)
+    hits += check_image_concept(pkg.get("image_concept"), names, pkg)
     return hits
 
 
@@ -468,7 +572,7 @@ def _now_sgt() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.7)")
+    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.8)")
     ap.add_argument("path", nargs="?", help="issue body / YAML package file, or - for stdin")
     ap.add_argument("--text", help="check a bare string (image text) instead of a package")
     ap.add_argument("--mode", choices=["image_text"], default="image_text")
