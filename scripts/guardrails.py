@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v0.8).
+"""Deterministic pre-review checks for one Auto-X item (NyxBot edition, contract v1.3).
 
 Ported from Auto-X lib/guardrails.py (deterministic part only: VOICE_PATTERNS,
 LEGAL_RE, em-dash > 2) and lib/image_gen.py (PUBLIC_BLOCKED_TOKENS). Source:
@@ -29,6 +29,20 @@ item, scene <= 300 English characters, text_on_image empty or <= 5 words / 40 ch
 product or competitor names, URLs, #/@, key-like strings, red-line words or the common checks, and
 the scene must not ask for a logo, blank space or a screenshot. A missing image_concept is not a
 hit; a legacy image_title keeps the v0.7 checks.
+Contract v1.3 (skill 1.6, #155 content quality; output schema autox-guardrails/v0.9):
+- post text: a question in the first sentence is a hit (question_opener; Ada's decision); more than one
+  em dash (was two); more than one emoji; template openers ("Stop ...", "Imagine ...", "Here's the
+  thing", "Say goodbye to", "Let's be honest", "Real talk"); the "In NyxID, ..." / "In Ornn, ..."
+  bridge that all five 11-17/18 test posts used (a "With NyxID, ..." bridge is a warning); self-answered reveal questions ("The
+  result?"); "It's not X, it's Y" contrast reveals; engagement-bait endings ("Agree?", "Thoughts?",
+  "RT if", "Let that sink in"). Hashtags 0-2 (was 1-3); more than one is a warning, not a hit.
+  A product name repeated in the body is a warning.
+- image_concept: three new formats (exaggerated_metaphor, two_panel_meme with text rule two_labels
+  "Left / Right", 1-2 words a side, character_story). The optional metadata keys style / motif /
+  purpose only produce warnings (style not a format id, motif not in IMAGE_MOTIFS, purpose too long);
+  missing keys are fine (items written before v1.3).
+- warnings never change eligibility; they go to variants[].warnings, item_warnings and, when any,
+  studio.warnings.
 Exit: 0 = at least one variant eligible (decision ok), 1 = no eligible variant,
 2 = unreadable input.
 
@@ -48,7 +62,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 SCHEMA = "autox-item/v0.2"
-OUTPUT_SCHEMA = "autox-guardrails/v0.8"
+OUTPUT_SCHEMA = "autox-guardrails/v0.9"
 CONTENT_TYPES = {"regular", "release"}          # newsjack, x_reply: P2
 MAX_ROUND = 2                                   # max automatic rework rounds (human_revise excluded)
 HUMAN_REVISE = "human_revise"
@@ -56,14 +70,22 @@ LENGTH_LIMIT = {"release": 280}
 DEFAULT_LIMIT = 240
 TCO_LENGTH = 23
 HASHTAG_RANGE = {"x_reply": (0, 3)}
-DEFAULT_HASHTAG_RANGE = (1, 3)
+DEFAULT_HASHTAG_RANGE = (0, 2)                  # contract v1.3: 0-1 is native, 2 is the hard cap
+HASHTAG_WARN_ABOVE = 1
 PRODUCT_NAMES = {"nyxid": ["NyxID"], "ornn": ["Ornn"]}
 IMAGE_TITLE_MAX_WORDS = 6
 IMAGE_TITLE_MAX_CHARS = 48
 # ---- contract v0.8 section 14.3: image_concept ----------------------------------------
 # format id -> rule for text_on_image ("two_words": left/right panel labels; "required"; "optional")
 IMAGE_FORMATS = {"before_after": "two_words", "editorial_flat": "optional", "clay_diorama": "optional",
-                 "meme_caption": "required", "pixel_art": "optional", "split_contrast": "optional"}
+                 "meme_caption": "required", "pixel_art": "optional", "split_contrast": "optional",
+                 # contract v1.3; two_labels = "Left / Right", drawn by the image Action, not the model
+                 "exaggerated_metaphor": "optional", "two_panel_meme": "two_labels",
+                 "character_story": "optional"}
+IMAGE_LABEL_MAX_WORDS = 2
+# contract v1.3: optional metadata on image_concept (warnings only; = image_styles.yaml concept_tags)
+IMAGE_MOTIFS = ["generic_robot", "object_metaphor", "person_scene", "animal", "abstract", "other"]
+IMAGE_PURPOSE_MAX_CHARS = 200
 IMAGE_CONCEPT_KEYS = ("format", "scene", "text_on_image", "brand")
 IMAGE_SCENE_MAX_CHARS = 300
 IMAGE_TEXT_MAX_WORDS = 5
@@ -93,7 +115,26 @@ VOICE_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("game_changer", re.compile(r"(?i)\bgame[- ]changer\b")),
     ("not_just_but", re.compile(r"(?i)\bnot just\b.+\bbut\b")),
 ]
-EM_DASH_MAX = 2
+EM_DASH_MAX = 1                                  # contract v1.3 (was 2)
+EMOJI_MAX = 1
+# ---- contract v1.3 (#155): post-text style checks (post text only, not image text) ---------
+# Sources: marketingskills copywriting/references/ai-tells.md (MIT, Corey Haines; adapted in part from
+# retieedra-profound/skills-marketing-library, MIT) and social/SKILL.md "No AI Tells"; sergebulaev
+# x-post-writer single-tweet-checklist (MIT, Sergey Bulaev); blader/humanizer §1-§4 (MIT, Siqi Chen).
+TEMPLATE_OPENER_RE = re.compile(
+    r"(?i)^\W*(?:stop\b|imagine\b|here['’]s the thing\b|here['’]s (?:what|how|why)\b|say goodbye to\b|"
+    r"let['’]s be honest\b|real talk\b|in today['’]s\b|unpopular opinion\b)")
+SELF_QA_RE = re.compile(
+    r"(?i)\b(?:the (?:result|catch|best part|kicker|twist|answer|secret|fix|trick)|why does (?:this|it) matter|"
+    r"what changed)\s*\?\s*\S")
+CONTRAST_RE = re.compile(
+    r"(?i)\b(?:it['’]?s|this is|that['’]?s|this isn['’]t|it isn['’]t) not\b[^.?!\n]{1,60}[,;.]\s*"
+    r"(?:it['’]?s|this is|that['’]?s|it is)\b|\bnot because\b[^.?!\n]{1,60}\.\s*because\b")
+BAIT_RE = re.compile(
+    r"(?i)\b(?:agree|thoughts|am i wrong|what do you think|who else)\s*\?|\brt if\b|\bretweet if\b|"
+    r"\blike if\b|\blet that sink in\b|\bread that again\b|\breply (?:yes|with)\b")
+BRIDGE_RE = re.compile(r"(?:^|[.!?:]\s+)(In|With) (NyxID|Ornn),")
+FIRST_SENTENCE_END_RE = re.compile(r"[.!?](?=[\s\"'’”)]|$)|\n")
 # ---- ported from Auto-X lib/image_gen.py PUBLIC_BLOCKED_TOKENS, widened to variants --
 INTERNAL_MARKER_RE = re.compile(
     r"(?i)(?:⟦|⟧|AI\s*[:：]\s*AUTO[\s_-]*LOOP|autox-event)")
@@ -105,6 +146,7 @@ BARE_DOMAIN_RE = re.compile(
     r"link|tech|cloud|site)\b(?:/[^\s]*)?")
 HASHTAG_RE = re.compile(r"(?<![\w&#])#(\w+)")
 THREAD_EMOJI = "\U0001f9f5"
+THREAD_EMOJI_CP = 0x1F9F5                       # counted by check_thread, not again as an emoji
 THREAD_WORD_RE = re.compile(r"(?i)\bthread\s*:")
 THREAD_BARE_RE = re.compile(r"(?<![\w/])\(?(\d{1,2})/\)?(?=\s|$)")
 # "2/5" only counts at the start or end of a line, so "24/7" and "a 50/50 call" pass.
@@ -227,6 +269,73 @@ def check_common(text: str, names: list[str]) -> list[dict]:
     return hits
 
 
+def _is_emoji(cp: int) -> bool:
+    return (0x1F300 <= cp <= 0x1FAFF or 0x2600 <= cp <= 0x27BF or 0x1F000 <= cp <= 0x1F2FF
+            or cp in (0x2B50, 0x2B55, 0x2B1B, 0x2B1C, 0x2B05, 0x2B06, 0x2B07, 0x2934, 0x2935, 0x3030, 0x303D,
+                      0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x231A, 0x231B, 0x2328, 0x23CF)
+            or 0x23E9 <= cp <= 0x23FA)
+
+
+def count_emoji(text: str) -> int:
+    """Emoji, counting a ZWJ sequence, a keycap or a skin-tone / VS16 tail as one, and a flag
+    (two regional indicators) as one."""
+    n, prev_zwj, ri = 0, False, 0
+    for ch in text:
+        cp = ord(ch)
+        if cp == 0x200D:
+            prev_zwj = True
+            continue
+        if 0x1F1E6 <= cp <= 0x1F1FF:
+            ri += 1
+            if ri % 2 == 1:
+                n += 1
+            continue
+        if cp in (0xFE0F, 0xFE0E, 0x20E3) or 0x1F3FB <= cp <= 0x1F3FF:
+            continue
+        if _is_emoji(cp) and cp != THREAD_EMOJI_CP and not prev_zwj:
+            n += 1
+        prev_zwj = False
+    return n
+
+
+def first_sentence(text: str) -> str:
+    body = HASHTAG_RE.sub(" ", URL_RE.sub(" ", text)).strip()
+    m = FIRST_SENTENCE_END_RE.search(body)
+    return body[:m.end()] if m else body
+
+
+def check_post_style(text: str, product: str, own: str) -> tuple[list[dict], list[dict]]:
+    """Contract v1.3 (#155) post-text checks. Returns (hits, warnings)."""
+    hits, warnings = [], []
+    if "?" in first_sentence(text):
+        hits.append(_hit("question_opener", f"the first sentence is a question: {first_sentence(text)[:80]!r}"))
+    m = TEMPLATE_OPENER_RE.search(text.strip())
+    if m:
+        hits.append(_hit("template_opener", f"template opener {m.group(0).strip()!r}"))
+    for label, pattern in (("self_qa", SELF_QA_RE), ("contrast_reveal", CONTRAST_RE), ("engagement_bait", BAIT_RE)):
+        m = pattern.search(text)
+        if m:
+            hits.append(_hit(label, f"{m.group(0).strip()!r}"))
+    for m in BRIDGE_RE.finditer(text):
+        if m.group(1) == "In":
+            hits.append(_hit("product_bridge", f"{m.group(1)} {m.group(2)}, ... bridge (the 11-17 template)"))
+        else:
+            warnings.append(_hit("product_bridge", f"{m.group(1)} {m.group(2)}, ... reads like the old bridge"))
+        break
+    emoji = count_emoji(text)
+    if emoji > EMOJI_MAX:
+        hits.append(_hit("emoji", f"{emoji} emoji, limit {EMOJI_MAX}"))
+    tags = [t for t in HASHTAG_RE.findall(text) if not t.isdigit()]
+    if len(tags) > HASHTAG_WARN_ABOVE:
+        warnings.append(_hit("hashtags", f"{len(tags)} hashtags; 0-1 reads native, 2 is the cap"))
+    body = HASHTAG_RE.sub(" ", URL_RE.sub(" ", own))
+    for name in PRODUCT_NAMES.get(product, []):
+        times = len(_name_re(name).findall(body))
+        if times > 1:
+            warnings.append(_hit("product_repeated", f"{name} named {times} times; once, naturally, is enough"))
+    return hits, warnings
+
+
 def check_commands(text: str) -> list[dict]:
     hits = []
     for label, pattern in COMMAND_RES:
@@ -291,6 +400,8 @@ def check_variant(variant: dict, product: str, content_type: str, names: list[st
     hits += check_thread(text)
     hits += check_common(text, names)
     hits += check_commands(own)
+    style_hits, warnings = check_post_style(text, product, own) if content_type in CONTENT_TYPES else ([], [])
+    hits += style_hits
     return {
         "id": variant.get("id"),
         "hook_style": variant.get("hook_style"),
@@ -300,6 +411,7 @@ def check_variant(variant: dict, product: str, content_type: str, names: list[st
         "writer_char_count": variant.get("char_count"),
         "sha12": sha12(text),
         "hits": hits,
+        "warnings": warnings,
     }
 
 
@@ -404,11 +516,34 @@ def check_image_concept(concept, names: list[str], pkg: dict) -> list[dict]:
     rule = IMAGE_FORMATS.get(fmt)
     if rule == "two_words" and len(words) != 2:
         hits.append(_hit("image_concept", f"text_on_image: {fmt} needs exactly two words (left and right labels)"))
+    if rule == "two_labels":
+        sides = [" ".join(p.split()) for p in text.split("/")]
+        if len(sides) != 2 or any(not p or len(p.split()) > IMAGE_LABEL_MAX_WORDS for p in sides):
+            hits.append(_hit("image_concept", f"text_on_image: {fmt} needs two labels written 'Left / Right', "
+                                              f"each 1-{IMAGE_LABEL_MAX_WORDS} words"))
     if rule == "required" and not words:
         hits.append(_hit("image_concept", f"text_on_image: {fmt} needs the caption"))
     if text:
         hits += _image_words(text, "text_on_image", names)
     return hits
+
+
+def concept_warnings(concept) -> list[dict]:
+    """Contract v1.3: style / motif / purpose are metadata for the metrics. Missing = fine (older
+    items); odd values are warnings only, never a hit."""
+    if not isinstance(concept, dict):
+        return []
+    out = []
+    style = concept.get("style")
+    if style is not None and style not in IMAGE_FORMATS:
+        out.append(_hit("image_concept", f"style {style!r} is not a format id {sorted(IMAGE_FORMATS)}"))
+    motif = concept.get("motif")
+    if motif is not None and motif not in IMAGE_MOTIFS:
+        out.append(_hit("image_concept", f"motif {motif!r} is not one of {IMAGE_MOTIFS}"))
+    purpose = concept.get("purpose")
+    if purpose is not None and (not isinstance(purpose, str) or len(purpose.strip()) > IMAGE_PURPOSE_MAX_CHARS):
+        out.append(_hit("image_concept", f"purpose should be one sentence of at most {IMAGE_PURPOSE_MAX_CHARS} characters"))
+    return out
 
 
 def check_package(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None) -> list[dict]:
@@ -496,6 +631,7 @@ def evaluate(pkg: dict, names: list[str], ids: dict[str, set[str]] | None = None
         "schema": OUTPUT_SCHEMA, "item_schema": pkg.get("schema"), "product": product,
         "content_type": content_type, "round": rnd, "auto_rounds": auto,
         "human_revisions": human_revisions(pkg), "item_hits": item_hits,
+        "item_warnings": concept_warnings(pkg.get("image_concept")),
         "variants": results, "eligible_variants": eligible, "decision": decision,
         "passed": bool(eligible),
     }
@@ -506,9 +642,16 @@ def studio_block(result: dict, at: str) -> dict:
             for r in result["variants"] if r["hits"]}
     if result["item_hits"]:
         hits["item"] = [f"{h['check']}: {h['detail']}" for h in result["item_hits"]]
-    return {"round": result["round"], "verdict": result["decision"]["verdict"],
-            "failed_variants": [r["id"] for r in result["variants"] if not r["eligible"]],
-            "hits": hits, "at": at}
+    block = {"round": result["round"], "verdict": result["decision"]["verdict"],
+             "failed_variants": [r["id"] for r in result["variants"] if not r["eligible"]],
+             "hits": hits, "at": at}
+    warnings = {r["id"]: [f"{w['check']}: {w['detail']}" for w in r.get("warnings") or []]
+                for r in result["variants"] if r.get("warnings")}
+    if result.get("item_warnings"):
+        warnings["item"] = [f"{w['check']}: {w['detail']}" for w in result["item_warnings"]]
+    if warnings:                                  # contract v1.3; absent when there is nothing to say
+        block["warnings"] = warnings
+    return block
 
 
 def history_row(result: dict, at: str, image: dict | None) -> dict:
@@ -572,7 +715,7 @@ def _now_sgt() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v0.8)")
+    ap = argparse.ArgumentParser(description="Auto-X deterministic guardrails (contract v1.3)")
     ap.add_argument("path", nargs="?", help="issue body / YAML package file, or - for stdin")
     ap.add_argument("--text", help="check a bare string (image text) instead of a package")
     ap.add_argument("--mode", choices=["image_text"], default="image_text")
